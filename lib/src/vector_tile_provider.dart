@@ -1,3 +1,4 @@
+import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:http/http.dart';
@@ -81,12 +82,16 @@ class _UrlProvider {
   _UrlProvider(this.urlTemplate);
 
   String url(TileIdentity identity) {
-    return urlTemplate.replaceAllMapped(RegExp(r'\{(x|y|z)\}'), (match) {
+    return urlTemplate.replaceAllMapped(RegExp(r'\{(x|y|-y|z)\}'), (match) {
       switch (match.group(1)) {
         case 'x':
           return identity.x.toInt().toString();
         case 'y':
           return identity.y.toInt().toString();
+        case '-y':
+          final _y = identity.y.toInt();
+          final y = pow(2, identity.z) - _y - 1;
+          return y.toInt().toString();
         case 'z':
           return identity.z.toInt().toString();
         default:
