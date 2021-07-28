@@ -89,8 +89,7 @@ class _UrlProvider {
         case 'y':
           return identity.y.toInt().toString();
         case '-y':
-          final _y = identity.y.toInt();
-          final y = pow(2, identity.z) - _y - 1;
+          final y = pow(2, identity.z) - identity.y - 1;
           return y.toInt().toString();
         case 'z':
           return identity.z.toInt().toString();
