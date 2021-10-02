@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:http/http.dart';
 import 'package:http/retry.dart';
+import 'provider_exception.dart';
 
 import 'cache/memory_cache.dart';
 import 'tile_identity.dart';
@@ -17,7 +18,6 @@ abstract class VectorTileProvider {
 class NetworkVectorTileProvider extends VectorTileProvider {
   final _UrlProvider _urlProvider;
   final Map<String, String>? httpHeaders;
-  final RetryClient _retryClient = RetryClient(Client());
   final int _maximumZoom;
 
   int get maximumZoom => _maximumZoom;
@@ -37,13 +37,33 @@ class NetworkVectorTileProvider extends VectorTileProvider {
   @override
   Future<Uint8List> provide(TileIdentity tile) async {
     _checkTile(tile);
-    final uri = Uri.parse(_urlProvider.url(tile));
-    final response = await _retryClient.get(uri, headers: httpHeaders);
-    if (response.statusCode == 200) {
-      return response.bodyBytes;
+    final max = pow(2, tile.z).toInt();
+    if (tile.x >= max || tile.y >= max || tile.x < 0 || tile.y < 0) {
+      throw ProviderException(
+          message: 'Invalid tile coordinates $tile',
+          retryable: Retryable.none,
+          statusCode: 400);
     }
-    throw Exception(
-        'Cannot retrieve tile: HTTP ${response.statusCode}: $uri ${response.body}');
+    final uri = Uri.parse(_urlProvider.url(tile));
+    final client = RetryClient(Client());
+    try {
+      final response = await client.get(uri, headers: httpHeaders);
+      if (response.statusCode == 200) {
+        return response.bodyBytes;
+      }
+      final logSafeUri = uri.toString().split(RegExp(r'\?')).first;
+      throw ProviderException(
+          message:
+              'Cannot retrieve tile: HTTP ${response.statusCode}: $logSafeUri ${response.body}',
+          statusCode: response.statusCode,
+          retryable: _isRetryable(response.statusCode)
+              ? Retryable.retry
+              : Retryable.none);
+    } on ClientException catch (e) {
+      throw ProviderException(message: e.message, retryable: Retryable.retry);
+    } finally {
+      client.close();
+    }
   }
 
   void _checkTile(TileIdentity tile) {
@@ -51,6 +71,8 @@ class NetworkVectorTileProvider extends VectorTileProvider {
       throw Exception('out of range');
     }
   }
+
+  _isRetryable(int statusCode) => statusCode == 503 || statusCode == 408;
 }
 
 class MemoryCacheVectorTileProvider extends VectorTileProvider {

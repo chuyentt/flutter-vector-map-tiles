@@ -1,4 +1,5 @@
 import 'package:flutter/widgets.dart';
+import '../provider_exception.dart';
 import 'package:vector_tile_renderer/vector_tile_renderer.dart';
 import 'dart:ui' as ui;
 
@@ -31,15 +32,41 @@ class VectorTileModel extends ChangeNotifier {
   VectorTileModel(this.renderMode, this.caches, this.theme, this.tile,
       this.zoomScaleFunction, this.zoomFunction, this.showTileDebugInfo) {
     final slippyMap = SlippyMapTranslator(caches.vectorTileCache.maximumZoom);
-    translation = slippyMap.translate(tile);
+    translation = slippyMap.translate(tile.normalize());
     imageTranslation = translation;
   }
 
-  void startLoading() async {
+  void startLoading() {
+    _loadWithAttempts(3);
+  }
+
+  void _loadWithAttempts(int attempts) async {
+    try {
+      await _loadOnce();
+    } on ProviderException catch (e, stack) {
+      print(e);
+      if (e.retryable == Retryable.retry) {
+        if (attempts > 0) {
+          Future.delayed(Duration(seconds: 3), () {
+            if (!_disposed) {
+              _loadWithAttempts(attempts - 1);
+            }
+          });
+        } // keep retryable failures quiet
+      } else if (e.statusCode != null && e.statusCode == 400) {
+        // bad request; unsupported
+      } else {
+        print(stack);
+        rethrow;
+      }
+    }
+  }
+
+  Future<void> _loadOnce() async {
     final vectorFuture =
         caches.vectorTileCache.retrieve(translation.translated);
     bool loadImage = renderMode == RenderMode.raster;
-    if (renderMode != RenderMode.vector) {
+    if (renderMode != RenderMode.vector && this.image == null) {
       loadImage = _presentImageTilePreviewIfPresent();
       if (this.image != null) {
         notifyListeners();
